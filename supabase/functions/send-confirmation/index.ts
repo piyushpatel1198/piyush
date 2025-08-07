@@ -2,7 +2,9 @@ import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { Resend } from "npm:resend@2.0.0";
 
-const resend = new Resend(Deno.env.get("RESEND_PUBLIC_KEY") || "invalid_key");
+// Use the API key for the Resend client. The previous implementation used the
+// public key which cannot send emails and resulted in runtime failures.
+const resend = new Resend(Deno.env.get("RESEND_API_KEY") || "");
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,6 +19,10 @@ interface ConfirmationEmailRequest {
 }
 
 const generatePersonalizedContent = async (name: string, industry: string) => {
+  // Default content used when the OpenAI request fails or returns an unexpected
+  // response structure.
+  const fallback = `Hi ${name}! 🚀 Welcome to our innovation community! We're thrilled to have someone from the ${industry} industry join us. Get ready to discover cutting-edge insights, connect with fellow innovators, and unlock new opportunities that will transform how you work. This is just the beginning of your innovation journey!`;
+
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -41,12 +47,18 @@ const generatePersonalizedContent = async (name: string, industry: string) => {
       }),
     });
 
+    if (!response.ok) {
+      console.error('OpenAI API error:', await response.text());
+      return fallback;
+    }
+
     const data = await response.json();
-    return data?.choices[1]?.message?.content;
+    // The OpenAI API returns choices starting at index 0. Using index 1 caused
+    // undefined content and subsequent runtime errors when calling replace().
+    return data?.choices?.[0]?.message?.content ?? fallback;
   } catch (error) {
     console.error('Error generating personalized content:', error);
-    // Fallback content
-    return `Hi ${name}! 🚀 Welcome to our innovation community! We're thrilled to have someone from the ${industry} industry join us. Get ready to discover cutting-edge insights, connect with fellow innovators, and unlock new opportunities that will transform how you work. This is just the beginning of your innovation journey!`;
+    return fallback;
   }
 };
 
@@ -111,7 +123,7 @@ const handler = async (req: Request): Promise<Response> => {
         ...corsHeaders,
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error in send-confirmation function:", error);
     return new Response(
       JSON.stringify({ error: error.message }),
