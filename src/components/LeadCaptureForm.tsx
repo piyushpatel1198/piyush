@@ -21,8 +21,26 @@ export const LeadCaptureForm = () => {
     setValidationErrors(errors);
 
     if (errors.length === 0) {
-      // Send confirmation email
       try {
+        // First, save lead to database
+        const { data: leadData, error: dbError } = await supabase
+          .from('leads')
+          .insert({
+            name: formData.name,
+            email: formData.email,
+            industry: formData.industry,
+          })
+          .select()
+          .single();
+
+        if (dbError) {
+          console.error('Error saving lead to database:', dbError);
+          // Continue with email sending even if database insert fails
+        } else {
+          console.log('Lead saved to database successfully:', leadData);
+        }
+
+        // Send confirmation email
         const { error: emailError } = await supabase.functions.invoke('send-confirmation', {
           body: {
             name: formData.name,
@@ -36,19 +54,21 @@ export const LeadCaptureForm = () => {
         } else {
           console.log('Confirmation email sent successfully');
         }
-      } catch (emailError) {
-        console.error('Error calling email function:', emailError);
-      }
 
-      const lead = {
-        name: formData.name,
-        email: formData.email,
-        industry: formData.industry,
-        submitted_at: new Date().toISOString(), 
-      };
-      addLead(lead);
-      setSubmitted(true);
-      setFormData({ name: '', email: '', industry: '' });
+        // Add to local store and show success
+        const lead = {
+          name: formData.name,
+          email: formData.email,
+          industry: formData.industry,
+          submitted_at: new Date().toISOString(), 
+        };
+        addLead(lead);
+        setSubmitted(true);
+        setFormData({ name: '', email: '', industry: '' });
+      } catch (error) {
+        console.error('Error in form submission:', error);
+        // TODO: Show error message to user
+      }
     }
   };
 
